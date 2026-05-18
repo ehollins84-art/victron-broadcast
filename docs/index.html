@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Flash victron-broadcast</title>
+  <script type="module" src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js?module"></script>
+  <style>
+    :root{--bg:#0b1020;--card:#141a30;--ink:#e8ecff;--muted:#9aa3c7;--accent:#5ac8fa;--ok:#34c759;--err:#ff453a}
+    *{box-sizing:border-box}
+    body{margin:0;font:15px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);padding:24px;max-width:760px;margin:auto}
+    h1{margin:0 0 4px;font-size:22px}
+    p.lede{color:var(--muted);margin:0 0 24px}
+    .card{background:var(--card);border:1px solid #2a325a;border-radius:12px;padding:18px;margin-bottom:14px}
+    .card h2{margin:0 0 8px;font-size:16px;color:var(--accent)}
+    ol{padding-left:18px;margin:0}
+    ol li{margin:6px 0}
+    code{background:#0e1431;padding:1px 6px;border-radius:4px;color:#e8ecff}
+    .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+    esp-web-install-button{--esp-tools-button-color:#001a2b;--esp-tools-button-text-color:#001a2b}
+    esp-web-install-button::part(button){background:var(--accent);color:#001a2b;border:0;border-radius:8px;padding:10px 16px;font-weight:600;cursor:pointer;font:inherit}
+    .note{font-size:13px;color:var(--muted)}
+    a{color:var(--accent)}
+    .warn{background:rgba(255,69,58,.12);border:1px solid var(--err);color:#ffd0cc;padding:10px;border-radius:8px;display:none}
+  </style>
+</head>
+<body>
+<h1>victron-broadcast</h1>
+<p class="lede">Flash your ESP32-S3 from this page — no installs. Works in Chrome, Edge, and the Chromebook built-in browser.</p>
+
+<div class="warn" id="warn">
+  Your browser does not support Web Serial. Open this page in <strong>Chrome</strong> or <strong>Edge</strong>. (On a Chromebook, the built-in browser is Chrome.)
+</div>
+
+<div class="card">
+  <h2>1. Flash the firmware</h2>
+  <ol>
+    <li>Plug the ESP32-S3 into your Chromebook with a USB-C cable that supports data (not charge-only).</li>
+    <li>Click the button below and pick the device that looks like <code>USB JTAG/serial debug unit</code> or <code>CP210x</code>.</li>
+    <li>Click <strong>Install</strong> &rarr; <strong>victron-broadcast (latest)</strong> &rarr; <strong>Erase device + install</strong>.</li>
+    <li>If it can't connect, hold the <strong>BOOT</strong> button while you press <strong>RESET</strong>, then release RESET (release BOOT after the install starts).</li>
+  </ol>
+  <div class="row" style="margin-top:12px">
+    <esp-web-install-button manifest="manifest.json">
+      <button slot="activate">Connect & install</button>
+      <span slot="unsupported" class="note">Your browser doesn't support Web Serial.</span>
+      <span slot="not-allowed" class="note">This page must be loaded over HTTPS.</span>
+    </esp-web-install-button>
+    <span class="note">Chip should be ESP32-S3. Erase + install takes ~30 seconds.</span>
+  </div>
+</div>
+
+<div class="card">
+  <h2>2. Configure it</h2>
+  <ol>
+    <li>After install, the ESP32 reboots into setup mode and creates a WiFi network called
+        <code>victron-broadcast-setup</code> (open, no password).</li>
+    <li>From your Chromebook's WiFi menu, join that network. ChromeOS will pop a "Sign in to network"
+        page automatically — click it. (If not, open <a href="http://192.168.4.1" target="_blank">http://192.168.4.1</a>.)</li>
+    <li>Fill in: WiFi credentials, InfluxDB URL/org/bucket/token, and one row per Victron device.
+        Tap <strong>Scan nearby</strong> and the page lists every Victron device in BLE range so you
+        only need to paste the 32-hex bind key from VictronConnect.</li>
+    <li>Tap <strong>Save &amp; restart</strong>. The chip leaves AP mode and joins your real WiFi.</li>
+  </ol>
+  <p class="note">Need to start over? Hold the <strong>BOOT</strong> button on the chip for 3 seconds while it's running — it wipes config and goes back into setup mode.</p>
+</div>
+
+<div class="card">
+  <h2>3. View the dashboard</h2>
+  <ol>
+    <li>Sign up free: <a href="https://cloud2.influxdata.com/signup" target="_blank">InfluxDB Cloud Serverless</a> &amp; <a href="https://grafana.com/auth/sign-up/create-user" target="_blank">Grafana Cloud</a>.</li>
+    <li>In Grafana, add an InfluxDB data source pointing at your cluster URL, then import
+        <a href="https://github.com/ehollins84-art/victron-broadcast/blob/claude/esp32-victron-dashboard-IA5PG/dashboards/victron.json" target="_blank">dashboards/victron.json</a> from this repo.</li>
+    <li>Dashboard settings &rarr; <strong>Public dashboards</strong> &rarr; enable. Share that URL anywhere.</li>
+  </ol>
+</div>
+
+<p class="note">Source &amp; setup details:
+  <a href="https://github.com/ehollins84-art/victron-broadcast" target="_blank">github.com/ehollins84-art/victron-broadcast</a>
+</p>
+
+<script>
+  if (!('serial' in navigator)) document.getElementById('warn').style.display='block';
+</script>
+</body>
+</html>

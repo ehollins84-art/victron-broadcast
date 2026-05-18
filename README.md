@@ -37,21 +37,24 @@ portal. You join it from your phone, fill in a form, save. Done.
 
 ## 1. Flash the firmware
 
-A pre-built binary is published on the **Releases** page (tag `latest`).
-Download `victron-broadcast-merged.bin` and flash with esptool:
+**Easiest (Chromebook, Mac, Windows — no installs):** open
+[**the web flasher**](https://ehollins84-art.github.io/victron-broadcast/)
+in Chrome or Edge, plug the ESP32-S3 in via USB-C, click
+**Connect & install**. ~30 seconds.
+
+If it can't connect, hold the **BOOT** button while pressing **RESET**,
+then release RESET (release BOOT once the install starts).
+
+**Or via esptool** (Linux/Mac/Windows):
 
 ```bash
-# Replace /dev/ttyUSB0 with your port (mac: /dev/tty.usbmodem*, win: COM5)
-esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 \
+pip install esptool
+esptool.py --chip esp32s3 --port <YOUR_PORT> --baud 921600 \
     write_flash 0x0 victron-broadcast-merged.bin
 ```
 
-If the chip won't enter download mode, hold the BOOT button while
-pressing RESET, then release RESET (release BOOT after esptool prints
-"Connecting…").
-
-Open a serial monitor at 115200 baud after flashing — you should see
-`victron-broadcast booting` and then `entering setup portal`.
+Download `victron-broadcast-merged.bin` from the
+[`latest` release](https://github.com/ehollins84-art/victron-broadcast/releases/tag/latest).
 
 ## 2. Configure on the device (no code, no edits)
 

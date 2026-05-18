@@ -1,0 +1,18 @@
+{
+  "name": "victron-broadcast",
+  "version": "latest",
+  "home_assistant_domain": "",
+  "funding_url": "",
+  "new_install_prompt_erase": true,
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        {
+          "path": "https://github.com/ehollins84-art/victron-broadcast/releases/download/latest/victron-broadcast-merged.bin",
+          "offset": 0
+        }
+      ]
+    }
+  ]
+}
