@@ -1,23 +1,24 @@
 // victron-broadcast firmware
-//   - Scans BLE for Victron "Instant Readout" advertisements
-//   - Decrypts/parses per configured device
-//   - Pushes samples to InfluxDB Cloud over WiFi
 //
-// Configure secrets and device list in `include/config.h` (copy from
-// config.example.h). config.h is gitignored.
+//   - Reads config from NVS. If incomplete (or the BOOT button is held
+//     at power-on), launches the on-device setup portal and waits there.
+//   - Otherwise: connects to WiFi, scans BLE for Victron Instant Readout
+//     adverts, decrypts/parses, and pushes samples to InfluxDB Cloud.
 
 #include <Arduino.h>
 #include <WiFi.h>
 #include <NimBLEDevice.h>
-#include <time.h>
 #include "victron_ble.h"
 #include "influx.h"
-#include "config.h"
+#include "config_store.h"
+#include "portal.h"
 
-static InfluxWriter influx(INFLUX_URL, INFLUX_ORG, INFLUX_BUCKET, INFLUX_TOKEN);
+// Held LOW at boot => force portal mode (BOOT button on most S3 DevKits).
+static constexpr int RESET_PIN = 0;
 
-// Victron BLE manufacturer ID (Apple's range; Victron registered 0x02E1).
-static constexpr uint16_t VICTRON_MANUF_ID = 0x02E1;
+static AppConfig g_cfg;
+static InfluxWriter g_influx;
+static constexpr uint32_t INFLUX_FLUSH_INTERVAL_MS = 5000;
 
 class AdvCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice* dev) override {
@@ -25,7 +26,7 @@ class AdvCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         std::string md = dev->getManufacturerData();
         if (md.size() < 3) return;
         uint16_t mid = (uint8_t)md[0] | ((uint16_t)(uint8_t)md[1] << 8);
-        if (mid != VICTRON_MANUF_ID) return;
+        if (mid != 0x02E1) return;
 
         const uint8_t* payload = (const uint8_t*)md.data() + 2;
         size_t payloadLen = md.size() - 2;
@@ -35,7 +36,7 @@ class AdvCallbacks : public NimBLEAdvertisedDeviceCallbacks {
 
         VictronSample s{};
         if (!VictronDecoder::decode(payload, payloadLen, mac.c_str(),
-                                    VICTRON_DEVICES, VICTRON_DEVICE_COUNT, s)) {
+                                    g_cfg.devices, s)) {
             return;
         }
 
@@ -46,15 +47,15 @@ class AdvCallbacks : public NimBLEAdvertisedDeviceCallbacks {
         if (!isnan(s.solarPowerW))    Serial.printf(" PV=%.0fW", s.solarPowerW);
         Serial.println();
 
-        influx.enqueue(s);
+        g_influx.enqueue(s);
     }
 };
 
 static void connectWifi() {
     WiFi.mode(WIFI_STA);
-    WiFi.setSleep(false); // BLE + WiFi coexistence: keep WiFi awake
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    Serial.printf("[wifi] connecting to %s", WIFI_SSID);
+    WiFi.setSleep(false);
+    WiFi.begin(g_cfg.wifiSsid.c_str(), g_cfg.wifiPassword.c_str());
+    Serial.printf("[wifi] connecting to %s", g_cfg.wifiSsid.c_str());
     uint32_t start = millis();
     while (WiFi.status() != WL_CONNECTED && millis() - start < 30000) {
         delay(500);
@@ -71,8 +72,27 @@ static void connectWifi() {
 
 void setup() {
     Serial.begin(115200);
-    delay(500);
+    delay(300);
+    pinMode(RESET_PIN, INPUT_PULLUP);
     Serial.println("\nvictron-broadcast booting");
+
+    bool forcePortal = (digitalRead(RESET_PIN) == LOW);
+    if (forcePortal) {
+        Serial.println("[boot] BOOT button held -> portal mode");
+    }
+
+    bool loaded = ConfigStore::load(g_cfg);
+    if (!loaded || !g_cfg.isComplete() || forcePortal) {
+        Serial.println("[boot] no/incomplete config -> entering setup portal");
+        runSetupPortal(g_cfg); // never returns
+    }
+
+    Serial.printf("[boot] loaded config: %u device(s)\n", (unsigned)g_cfg.devices.size());
+    for (const auto& d : g_cfg.devices) {
+        Serial.printf("  - %s @ %s\n", d.name.c_str(), d.mac.c_str());
+    }
+
+    g_influx.configure(g_cfg.influxUrl, g_cfg.influxOrg, g_cfg.influxBucket, g_cfg.influxToken);
 
     connectWifi();
 
@@ -87,17 +107,30 @@ void setup() {
 }
 
 void loop() {
-    // Reconnect WiFi if dropped.
     static uint32_t lastWifiCheck = 0;
     if (millis() - lastWifiCheck > 5000) {
         lastWifiCheck = millis();
         if (WiFi.status() != WL_CONNECTED) {
             Serial.println("[wifi] reconnecting");
             WiFi.disconnect();
-            WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
+            WiFi.begin(g_cfg.wifiSsid.c_str(), g_cfg.wifiPassword.c_str());
         }
     }
 
-    influx.maybeFlush(INFLUX_FLUSH_INTERVAL_MS);
+    g_influx.maybeFlush(INFLUX_FLUSH_INTERVAL_MS);
+
+    // Hold BOOT for ~3s at runtime to wipe config and re-enter portal.
+    static uint32_t bootDownSince = 0;
+    if (digitalRead(RESET_PIN) == LOW) {
+        if (bootDownSince == 0) bootDownSince = millis();
+        if (millis() - bootDownSince > 3000) {
+            Serial.println("[boot] long-press detected, wiping config");
+            ConfigStore::clear();
+            delay(200);
+            ESP.restart();
+        }
+    } else {
+        bootDownSince = 0;
+    }
     delay(50);
 }

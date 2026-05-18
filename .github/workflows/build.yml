@@ -1,0 +1,72 @@
+name: build
+
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            firmware/.pio
+          key: pio-${{ runner.os }}-${{ hashFiles('firmware/platformio.ini') }}
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Build
+        working-directory: firmware
+        run: pio run -e esp32-s3
+
+      - name: Collect artifacts
+        working-directory: firmware
+        run: |
+          mkdir -p out
+          cp .pio/build/esp32-s3/firmware.bin           out/firmware.bin
+          cp .pio/build/esp32-s3/bootloader.bin         out/bootloader.bin
+          cp .pio/build/esp32-s3/partitions.bin         out/partitions.bin
+          cp ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin out/boot_app0.bin
+          # Combined single-file image for esptool merge_bin convenience.
+          python -m esptool --chip esp32s3 merge_bin \
+            -o out/victron-broadcast-merged.bin \
+            --flash_mode dio --flash_freq 80m --flash_size 4MB \
+            0x0000   out/bootloader.bin \
+            0x8000   out/partitions.bin \
+            0xe000   out/boot_app0.bin \
+            0x10000  out/firmware.bin
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: victron-broadcast-firmware
+          path: firmware/out/*.bin
+
+      - name: Publish rolling release
+        if: github.ref == 'refs/heads/claude/esp32-victron-dashboard-IA5PG'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: latest build
+          files: |
+            firmware/out/victron-broadcast-merged.bin
+            firmware/out/firmware.bin
+            firmware/out/bootloader.bin
+            firmware/out/partitions.bin
+            firmware/out/boot_app0.bin
+          prerelease: true
+          make_latest: false

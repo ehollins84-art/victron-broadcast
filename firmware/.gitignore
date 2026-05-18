@@ -2,6 +2,5 @@
 .pioenvs/
 .piolibdeps/
 .vscode/
-include/config.h
 *.bin
 *.elf

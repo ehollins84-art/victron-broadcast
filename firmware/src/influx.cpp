@@ -1,10 +1,12 @@
 #include "influx.h"
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <math.h>
 
-InfluxWriter::InfluxWriter(const char* url, const char* org, const char* bucket, const char* token)
-    : url_(url), org_(org), bucket_(bucket), token_(token) {}
+void InfluxWriter::configure(const String& url, const String& org, const String& bucket, const String& token) {
+    url_ = url; org_ = org; bucket_ = bucket; token_ = token;
+}
 
 void InfluxWriter::appendField(String& out, const char* key, float v, bool& first) {
     if (isnan(v)) return;
@@ -75,8 +77,10 @@ bool InfluxWriter::maybeFlush(uint32_t intervalMs) {
     if (now - lastFlushMs_ < intervalMs) return false;
     if (buffer_.length() == 0) { lastFlushMs_ = now; return false; }
     if (WiFi.status() != WL_CONNECTED) return false;
+    if (url_.length() == 0 || token_.length() == 0) return false;
 
     String endpoint = url_;
+    if (endpoint.endsWith("/")) endpoint.remove(endpoint.length() - 1);
     endpoint += "/api/v2/write?org=";
     endpoint += org_;
     endpoint += "&bucket=";
@@ -84,7 +88,15 @@ bool InfluxWriter::maybeFlush(uint32_t intervalMs) {
     endpoint += "&precision=s";
 
     HTTPClient http;
-    http.begin(endpoint);
+    WiFiClientSecure secure;
+    secure.setInsecure(); // skip cert validation; metrics traffic only
+    bool isHttps = endpoint.startsWith("https://");
+    bool began = isHttps ? http.begin(secure, endpoint) : http.begin(endpoint);
+    if (!began) {
+        Serial.println("[influx] http.begin failed");
+        lastFlushMs_ = now;
+        return true;
+    }
     http.addHeader("Authorization", String("Token ") + token_);
     http.addHeader("Content-Type", "text/plain; charset=utf-8");
     int rc = http.POST((uint8_t*)buffer_.c_str(), buffer_.length());

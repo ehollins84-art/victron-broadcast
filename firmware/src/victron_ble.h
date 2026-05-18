@@ -1,12 +1,10 @@
 #pragma once
 #include <Arduino.h>
 #include <stdint.h>
+#include "config_store.h"
 
-struct VictronDevice {
-    const char* name;
-    const char* mac;     // lowercase "aa:bb:cc:dd:ee:ff"
-    const char* keyHex;  // 32 hex chars
-};
+// Decoder accepts the runtime DeviceCfg list directly.
+using VictronDevice = DeviceCfg;
 
 enum class VictronRecordType : uint8_t {
     TestRecord       = 0x00,
@@ -63,7 +61,7 @@ public:
     // the encryption key prefix does not match.
     static bool decode(const uint8_t* manufData, size_t len,
                        const char* macLower,
-                       const VictronDevice* devices, size_t deviceCount,
+                       const std::vector<VictronDevice>& devices,
                        VictronSample& out);
 
 private:

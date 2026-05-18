@@ -4,7 +4,8 @@
 
 class InfluxWriter {
 public:
-    InfluxWriter(const char* url, const char* org, const char* bucket, const char* token);
+    InfluxWriter() = default;
+    void configure(const String& url, const String& org, const String& bucket, const String& token);
 
     // Append a sample to the in-memory line-protocol buffer. The newest
     // sample for each device replaces older buffered ones to keep the

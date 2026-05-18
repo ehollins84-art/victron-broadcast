@@ -227,20 +227,20 @@ void VictronDecoder::parseDcDcConverter(const uint8_t* p, size_t len, VictronSam
 
 bool VictronDecoder::decode(const uint8_t* manufData, size_t len,
                             const char* macLower,
-                            const VictronDevice* devices, size_t deviceCount,
+                            const std::vector<VictronDevice>& devices,
                             VictronSample& out) {
     if (len < 8) return false;
     if (manufData[0] != 0x10) return false; // not an Instant Readout record
 
     // Match by MAC against configured devices.
     const VictronDevice* dev = nullptr;
-    for (size_t i = 0; i < deviceCount; ++i) {
-        if (macEqualsLower(macLower, devices[i].mac)) { dev = &devices[i]; break; }
+    for (const auto& d : devices) {
+        if (macEqualsLower(macLower, d.mac.c_str())) { dev = &d; break; }
     }
     if (!dev) return false;
 
     uint8_t key[16];
-    if (!hexToBytes(dev->keyHex, key, 16)) return false;
+    if (!hexToBytes(dev->key.c_str(), key, 16)) return false;
 
     // Verify key prefix byte.
     if (manufData[6] != key[0]) return false;
@@ -256,7 +256,7 @@ bool VictronDecoder::decode(const uint8_t* manufData, size_t len,
     if (!aesCtrDecrypt(key, nonce, enc, plain, encLen)) return false;
 
     resetSample(out);
-    out.name = dev->name;
+    out.name = dev->name.c_str();
     out.modelId = modelId;
     out.type = (VictronRecordType)rtype;
 

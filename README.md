@@ -1,177 +1,168 @@
 # victron-broadcast
 
-ESP32-S3 firmware that listens to Victron "Instant Readout" BLE
-advertisements, decrypts them, and pushes the readings to InfluxDB Cloud
-so you can view live + historical charts on a public Grafana Cloud
-dashboard from anywhere in the world.
+ESP32-S3 firmware that listens to Victron "Instant Readout" BLE adverts,
+decrypts them, and pushes the readings to InfluxDB Cloud — so you can
+view live + historical charts on a public Grafana dashboard from
+anywhere in the world.
 
 ```
- Victron device(s)                ESP32-S3                Cloud (free)
- ┌──────────────┐    BLE adv     ┌──────────────┐  HTTPS  ┌─────────────┐
- │ SmartShunt   │ ───────────▶   │ scan + decode│ ──────▶ │ InfluxDB    │
- │ MPPT         │ ───────────▶   │ AES-CTR      │         │ Cloud       │
- │ Inverter     │ ───────────▶   │ WiFi push    │         └──────┬──────┘
- └──────────────┘                └──────────────┘                │
-                                                                 ▼
-                                                          ┌─────────────┐
-                                                          │  Grafana    │
-                                                          │  Cloud      │
-                                                          │  (public)   │
-                                                          └─────────────┘
+ Victron device(s)               ESP32-S3                Cloud (free)
+ ┌──────────────┐    BLE         ┌──────────────┐  HTTPS  ┌────────────┐
+ │ SmartShunt   │ ─────────────▶ │ scan, decrypt│ ──────▶ │ InfluxDB   │
+ │ MPPT         │ ─────────────▶ │ AES-CTR      │         │ Cloud      │
+ │ Inverter     │ ─────────────▶ │ WiFi push    │         └─────┬──────┘
+ └──────────────┘                └──────────────┘               │
+                                                                ▼
+                                                          ┌────────────┐
+                                                          │ Grafana    │
+                                                          │ Cloud      │
+                                                          │ (public)   │
+                                                          └────────────┘
 ```
 
-## What you need
+There is no code editing. First boot, the ESP32 hosts its own WiFi setup
+portal. You join it from your phone, fill in a form, save. Done.
 
-- ESP32-S3 board (DevKitC-1, Feather S3, etc. — anything with BLE + WiFi).
-- USB-C cable.
-- VictronConnect app on your phone (to read each device's bind key once).
-- Free accounts at:
-  - [InfluxDB Cloud Serverless](https://cloud2.influxdata.com/signup) — time-series store.
-  - [Grafana Cloud](https://grafana.com/auth/sign-up/create-user) — dashboards with public sharing.
-- [PlatformIO](https://platformio.org/install) (VS Code extension or the CLI) to build/flash.
+## What you need before flashing
 
-## 1. Grab the Victron bind keys
+- ESP32-S3 board (DevKitC-1, Feather S3, anything S3) + USB-C cable.
+- Your VictronConnect app — to grab the **bind key** and **BLE MAC** for
+  each Victron device you want to monitor.
+- A free [InfluxDB Cloud Serverless](https://cloud2.influxdata.com/signup)
+  account (5 GB ingest/month, 30-day retention).
+- A free [Grafana Cloud](https://grafana.com/auth/sign-up/create-user)
+  account (publicly shareable dashboards).
+- Either Python 3 + `esptool` (`pip install esptool`) **or** Chrome/Edge
+  for web-flashing.
 
-For each Victron device you want to monitor:
+## 1. Flash the firmware
 
-1. Open VictronConnect, connect to the device.
-2. Settings (gear icon) → Product info.
-3. Scroll to **Instant readout via Bluetooth** → toggle it **on**.
-4. Tap **Show** under "Encryption data" → copy the 32-hex-character key.
-5. Also note the device's **BLE MAC address** (also shown on the product
-   info screen, format `AA:BB:CC:DD:EE:FF`).
-
-Repeat for each device.
-
-## 2. Set up InfluxDB Cloud
-
-1. Sign up at https://cloud2.influxdata.com/signup (pick the free
-   Serverless plan — 5 GB ingest/month, 30-day default retention).
-2. After signup, note your **Cluster URL** (e.g.
-   `https://us-east-1-1.aws.cloud2.influxdata.com`) — visible in the
-   account menu.
-3. Create a bucket named `victron` (Load Data → Buckets → Create Bucket).
-4. Create an API token with **Write** access to that bucket
-   (Load Data → API Tokens → Generate → Custom API Token). Copy it —
-   it's only shown once.
-5. Note your **Org ID** (Settings → About; or use your signup email).
-
-## 3. Configure the firmware
+A pre-built binary is published on the **Releases** page (tag `latest`).
+Download `victron-broadcast-merged.bin` and flash with esptool:
 
 ```bash
-cd firmware
-cp include/config.example.h include/config.h
-$EDITOR include/config.h
+# Replace /dev/ttyUSB0 with your port (mac: /dev/tty.usbmodem*, win: COM5)
+esptool.py --chip esp32s3 --port /dev/ttyUSB0 --baud 921600 \
+    write_flash 0x0 victron-broadcast-merged.bin
 ```
 
-Fill in:
-- `WIFI_SSID`, `WIFI_PASSWORD`
-- `INFLUX_URL`, `INFLUX_ORG`, `INFLUX_BUCKET`, `INFLUX_TOKEN`
-- The `VICTRON_DEVICES` array — one entry per device. Lowercase the MAC,
-  paste the 32-hex bind key (no spaces).
-- Update `VICTRON_DEVICE_COUNT` to match the array length.
+If the chip won't enter download mode, hold the BOOT button while
+pressing RESET, then release RESET (release BOOT after esptool prints
+"Connecting…").
 
-`config.h` is gitignored, so your secrets won't be committed.
+Open a serial monitor at 115200 baud after flashing — you should see
+`victron-broadcast booting` and then `entering setup portal`.
 
-## 4. Build and flash
+## 2. Configure on the device (no code, no edits)
 
-With PlatformIO CLI:
+1. On your phone, join the WiFi network **`victron-broadcast-setup`**
+   (open, no password). Most phones will pop a captive-portal page
+   automatically. If not, open `http://192.168.4.1` in a browser.
+2. Fill in:
+   - **WiFi** — the network the ESP32 should join afterwards.
+   - **InfluxDB** — cluster URL, org, bucket (default `victron`), token
+     (see step 3 below for where these come from).
+   - **Victron devices** — name + MAC + bind key, one row per device.
+     Tap **Scan nearby** and the page will list every Victron device in
+     BLE range; tap a row to fill in the MAC. Paste the 32-hex bind key
+     from VictronConnect.
+3. Tap **Save & restart**. The chip leaves AP mode, joins your WiFi, and
+   starts publishing.
 
-```bash
-cd firmware
-pio run -t upload    # flash
-pio device monitor   # open serial @ 115200
-```
+Forgot something? Hold BOOT for ~3 s while running, or hold BOOT at
+power-on, to re-enter the portal.
 
-You should see:
+### Getting the bind key + MAC from VictronConnect
 
-```
-victron-broadcast booting
-[wifi] connected, ip=192.168.x.x rssi=-52
-[ble] scanning
-[victron] shunt type=2 V=13.45 I=-1.230 SoC=87.5%
-[victron] mppt  type=1 V=13.45 PV=42W
-[influx] flushed 312 bytes ok
-```
+For each Victron device:
 
-If you see Victron lines but no InfluxDB flush, check your token + bucket
-+ cluster URL. If you see nothing, double-check the bind key and that
-Instant Readout is enabled on the Victron device.
+1. Open VictronConnect, tap your device.
+2. Gear icon → **Product info**.
+3. Toggle **Instant readout via Bluetooth** ON.
+4. Tap **Show** under "Encryption data" → copy the 32-hex key.
+5. The BLE MAC is on the same screen (`AA:BB:CC:DD:EE:FF`).
 
-## 5. Build the public dashboard
+## 3. Set up InfluxDB Cloud (free)
 
-1. In **Grafana Cloud**, add an **InfluxDB** data source:
+1. Sign up at https://cloud2.influxdata.com/signup (Serverless plan).
+2. Note the **Cluster URL** shown in the top-right account menu, e.g.
+   `https://us-east-1-1.aws.cloud2.influxdata.com`.
+3. **Load Data → Buckets → Create Bucket** → name it `victron`.
+4. **Load Data → API Tokens → Generate API Token → Custom API Token** →
+   give it **Write** access to the `victron` bucket. Copy it once.
+5. Your **Org** is your signup email (or the org slug in Settings → About).
+
+Put the URL, org, bucket, and token into the device portal.
+
+## 4. Set up the public Grafana dashboard
+
+1. Sign up at https://grafana.com/auth/sign-up/create-user.
+2. In your Grafana stack, **Connections → Add new connection → InfluxDB**:
    - Query language: **Flux**
-   - URL: your InfluxDB Cluster URL
-   - Auth → custom HTTP header `Authorization: Token <YOUR_TOKEN>`
-   - Default org/bucket: your values from step 2.
-2. Create a new dashboard. Example Flux query for the SmartShunt:
-   ```flux
-   from(bucket: "victron")
-     |> range(start: -24h)
-     |> filter(fn: (r) => r._measurement == "victron" and r.name == "shunt")
-     |> filter(fn: (r) => r._field == "batt_v" or r._field == "soc")
-   ```
-3. Add panels for whatever you care about: battery V, SoC, PV W, AC V,
-   etc. The field names are listed below.
-4. **Share publicly:** dashboard settings → **Public dashboards** →
-   enable. Grafana gives you a URL anyone can open from anywhere. No
-   login, no port-forwarding, no router setup.
+   - URL: your InfluxDB cluster URL
+   - Auth: under "Custom HTTP Headers", add
+     `Authorization` → `Token <YOUR_INFLUX_TOKEN>`
+   - Default org / bucket: your values
+   - Save & test → should say "datasource is working".
+3. Import the dashboard from `dashboards/victron.json` in this repo
+   (Dashboards → New → Import → Upload JSON file).
+4. Dashboard settings → **Public dashboards** → enable → copy the URL.
+   That URL is your public dashboard.
 
-## Field reference
+## Field reference (what shows up in InfluxDB)
 
 Measurement: `victron`. Tags: `name` (your device label), `type`
-(record type id). Fields written when the device reports them:
+(record type id). Fields written only when the device reports them:
 
-| field      | unit | source records           |
-|------------|------|--------------------------|
-| `batt_v`   | V    | all                      |
-| `batt_a`   | A    | shunt, MPPT              |
-| `soc`      | %    | shunt                    |
-| `cons_ah`  | Ah   | shunt (negative = drawn) |
-| `ttg_min`  | min  | shunt                    |
-| `aux_v`    | V    | shunt (starter aux)      |
-| `temp_c`   | °C   | shunt (temp aux)         |
-| `mid_v`    | V    | shunt (midpoint aux)     |
-| `pv_w`     | W    | MPPT                     |
-| `yield_wh` | Wh   | MPPT (today's yield)     |
-| `load_a`   | A    | MPPT (load output)       |
-| `ac_va`    | VA   | inverter                 |
-| `ac_v`     | V    | inverter                 |
-| `ac_a`     | A    | inverter                 |
-| `state`    | enum | MPPT, inverter, DC-DC    |
-| `err`      | enum | MPPT, DC-DC              |
+| field      | unit | source                            |
+|------------|------|-----------------------------------|
+| `batt_v`   | V    | all                               |
+| `batt_a`   | A    | SmartShunt, MPPT                  |
+| `soc`      | %    | SmartShunt                        |
+| `cons_ah`  | Ah   | SmartShunt (negative when drawn)  |
+| `ttg_min`  | min  | SmartShunt                        |
+| `aux_v`    | V    | SmartShunt (starter aux)          |
+| `temp_c`   | °C   | SmartShunt (temp aux)             |
+| `mid_v`    | V    | SmartShunt (midpoint aux)         |
+| `pv_w`     | W    | MPPT                              |
+| `yield_wh` | Wh   | MPPT (today's yield)              |
+| `load_a`   | A    | MPPT (load output)                |
+| `ac_va`    | VA   | inverter                          |
+| `ac_v`     | V    | inverter                          |
+| `ac_a`     | A    | inverter                          |
+| `state`    | enum | MPPT, inverter, DC-DC             |
+| `err`      | enum | MPPT, DC-DC                       |
 
-## Supported record types
+## Building from source (optional)
 
-Decoded today: Battery Monitor (SmartShunt/BMV), Solar Charger (MPPT),
-Inverter, DC-DC Converter. Other record types (AC Charger, Smart
-Lithium, Lynx BMS, Multi RS, etc.) are recognized and logged but not
-parsed — open an issue or extend `firmware/src/victron_ble.cpp`.
+```bash
+cd firmware
+pio run -e esp32-s3 -t upload
+pio device monitor
+```
 
 ## Layout
 
 ```
 firmware/
   platformio.ini
-  include/
-    config.example.h   # template — copy to config.h
   src/
-    main.cpp           # WiFi + BLE scan + dispatch
-    victron_ble.{h,cpp} # AES-CTR decrypt + bitfield parsers
-    influx.{h,cpp}      # batched line-protocol writer
+    main.cpp                # boot flow, BLE callback, WiFi reconnect
+    config_store.{h,cpp}    # NVS-backed config (JSON in Preferences)
+    portal.{h,cpp}          # SoftAP + DNS + setup webpage
+    victron_ble.{h,cpp}     # AES-CTR decrypt + bitfield parsers
+    influx.{h,cpp}          # batched line-protocol writer
+.github/workflows/build.yml # CI: builds firmware.bin, publishes release
 ```
 
 ## Troubleshooting
 
-- **`[victron]` lines never appear**: bind key wrong, MAC wrong, or
-  Instant Readout disabled in VictronConnect. Verify with `idf.py monitor`
-  or `pio device monitor` — every Victron BLE advert seen will be
-  decrypted and logged.
-- **`HTTP -1` from InfluxDB**: usually WiFi DNS or TLS root cert. Make
-  sure the ESP32-S3 has time sync if your TLS chain requires it (most
-  Cloud endpoints do — the Arduino `WiFiClientSecure` uses the bundled
-  root CA store by default).
-- **BLE + WiFi instability**: keep `WiFi.setSleep(false)` (already set
-  in `main.cpp`); the BLE radio and WiFi share the same antenna on
-  ESP32-S3 and modem sleep can cause stalls.
+- **No `[victron]` lines** in serial output: bind key wrong, MAC wrong,
+  or Instant Readout not enabled on the Victron device.
+- **`HTTP -1` from InfluxDB**: WiFi DNS hiccup or TLS chain issue.
+  Reboot and confirm `[wifi] connected` appears before the flush.
+- **Can't see the setup AP**: hold BOOT for 3 s during normal run, or
+  power-cycle with BOOT held — both wipe stored config and re-enter the
+  portal.
+- **BLE + WiFi instability**: keep `WiFi.setSleep(false)` (default in
+  this firmware) — the S3 radio is shared and modem sleep stalls BLE.
