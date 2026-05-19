@@ -15,10 +15,39 @@
 
 // Held LOW at boot => force portal mode (BOOT button on most S3 DevKits).
 static constexpr int RESET_PIN = 0;
+// Xiao ESP32-S3 user LED (active LOW). Used as a heartbeat so a healthy chip
+// is visually obvious even without a serial console.
+static constexpr int STATUS_LED = 21;
 
 static AppConfig g_cfg;
 static InfluxWriter g_influx;
 static constexpr uint32_t INFLUX_FLUSH_INTERVAL_MS = 5000;
+
+// Print boot env and halt (don't crash/loop) if we're on the wrong silicon.
+// This firmware is built for the Seeed Xiao ESP32-S3 (ESP32-S3R8, 8MB QIO
+// flash + 8MB OPI PSRAM). Running it on a different ESP32-S3 variant with
+// PSRAM enabled in the bootloader can hammer the chip's SPI/PSRAM pins in
+// a bootloop and physically damage USB peripherals.
+static void verifyHardwareOrHalt() {
+    Serial.printf("[boot] chip=%s rev=%d cores=%d\n",
+                  ESP.getChipModel(), ESP.getChipRevision(), ESP.getChipCores());
+    Serial.printf("[boot] flash=%uMB @%uMHz mode=%d\n",
+                  ESP.getFlashChipSize() / (1024u * 1024u),
+                  ESP.getFlashChipSpeed() / 1000000u,
+                  (int)ESP.getFlashChipMode());
+    Serial.printf("[boot] psram=%uMB\n", ESP.getPsramSize() / (1024u * 1024u));
+
+    if (String(ESP.getChipModel()) != "ESP32-S3") {
+        Serial.println("[boot] FATAL: this firmware is for the Seeed Xiao ESP32-S3 only.");
+        Serial.println("[boot] Halting instead of bootlooping. Power off the board.");
+        // Slow heartbeat so the user can tell the chip is alive but parked.
+        pinMode(STATUS_LED, OUTPUT);
+        for (;;) {
+            digitalWrite(STATUS_LED, LOW);  delay(100);
+            digitalWrite(STATUS_LED, HIGH); delay(900);
+        }
+    }
+}
 
 class AdvCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     void onResult(NimBLEAdvertisedDevice* dev) override {
@@ -74,7 +103,15 @@ void setup() {
     Serial.begin(115200);
     delay(300);
     pinMode(RESET_PIN, INPUT_PULLUP);
+    pinMode(STATUS_LED, OUTPUT);
+    // Three quick blinks: "I'm alive, made it to setup()".
+    for (int i = 0; i < 3; ++i) {
+        digitalWrite(STATUS_LED, LOW);  delay(80);
+        digitalWrite(STATUS_LED, HIGH); delay(80);
+    }
     Serial.println("\nvictron-broadcast booting");
+
+    verifyHardwareOrHalt();
 
     bool forcePortal = (digitalRead(RESET_PIN) == LOW);
     if (forcePortal) {
@@ -116,6 +153,12 @@ void loop() {
             WiFi.begin(g_cfg.wifiSsid.c_str(), g_cfg.wifiPassword.c_str());
         }
     }
+
+    // 50ms-on / 1950ms-off heartbeat: app is in normal scan/upload loop.
+    static uint32_t lastBeat = 0;
+    uint32_t now = millis();
+    digitalWrite(STATUS_LED, (now - lastBeat < 50) ? LOW : HIGH);
+    if (now - lastBeat > 2000) lastBeat = now;
 
     g_influx.maybeFlush(INFLUX_FLUSH_INTERVAL_MS);
 

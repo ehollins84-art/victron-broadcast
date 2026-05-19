@@ -23,9 +23,29 @@ anywhere in the world.
 There is no code editing. First boot, the ESP32 hosts its own WiFi setup
 portal. You join it from your phone, fill in a form, save. Done.
 
+## Supported hardware
+
+This firmware is built **specifically for the Seeed Studio Xiao ESP32-S3**
+(ESP32-S3R8 with 8 MB QIO flash + 8 MB OPI PSRAM). The prebuilt release
+**will not boot on other ESP32-S3 boards** — the bootloader's flash/PSRAM
+config is wrong for them and will trigger a bootloop. (A sustained
+bootloop can physically damage the chip's USB peripheral; ask me how I
+know.)
+
+If you have a different ESP32-S3 board (DevKitC-1, Feather S3,
+LilyGo T-Display S3, etc.), don't use the prebuilt release. Clone the
+repo, edit `firmware/platformio.ini` to match your board, and build
+locally. The firmware halts at boot with a clear serial message if it
+detects it's running on the wrong silicon, so you won't brick it by
+accident — but you also won't get a working device until you build with
+the right config.
+
 ## What you need before flashing
 
-- ESP32-S3 board (DevKitC-1, Feather S3, anything S3) + USB-C cable.
+- A Seeed Xiao ESP32-S3 (~$8 — [Seeed direct][xiao] / Amazon / Mouser /
+  DigiKey) + a **data-capable** USB-C cable (not charge-only).
+
+[xiao]: https://www.seeedstudio.com/XIAO-ESP32S3-p-5627.html
 - Your VictronConnect app — to grab the **bind key** and **BLE MAC** for
   each Victron device you want to monitor.
 - A free [InfluxDB Cloud Serverless](https://cloud2.influxdata.com/signup)
